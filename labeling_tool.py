@@ -130,7 +130,9 @@ class ImageLabeler(QMainWindow):
         # Canvas for drawing
         self.canvas = CanvasLabel()
         self.canvas.set_parent_widget(self)
+        self.canvas.setMinimumSize(1, 1)  # Allow the label to shrink
         scroll_area.setWidget(self.canvas)
+        scroll_area.setAlignment(Qt.AlignCenter)  # Center the label in scroll area
         
         # Initialize variables
         self.current_image_path = None
@@ -264,23 +266,25 @@ class ImageLabeler(QMainWindow):
         if not self.image:
             return
             
-        # Get canvas size
-        canvas_width = self.canvas.width()
-        canvas_height = self.canvas.height()
-        
-        # Calculate scaled dimensions maintaining aspect ratio
-        img_aspect = self.image.width() / self.image.height()
-        canvas_aspect = canvas_width / canvas_height
-        
-        if canvas_aspect > img_aspect:
-            # Canvas is wider than needed
-            target_height = canvas_height
-            target_width = int(target_height * img_aspect)
+        # Get available space in scroll area
+        scroll_area = self.canvas.parent()
+        if not isinstance(scroll_area, QScrollArea):
+            # Fallback to a reasonable default size if no scroll area
+            target_width = 800
+            target_height = 600
         else:
-            # Canvas is taller than needed
-            target_width = canvas_width
-            target_height = int(target_width / img_aspect)
+            available_width = max(scroll_area.viewport().width(), 1)
+            available_height = max(scroll_area.viewport().height(), 1)
             
+            # Calculate scaling to fit in scroll area
+            width_scale = available_width / self.image.width()
+            height_scale = available_height / self.image.height()
+            scale = min(width_scale, height_scale)
+            
+            # Calculate target size
+            target_width = int(self.image.width() * scale)
+            target_height = int(self.image.height() * scale)
+        
         # Scale image
         scaled_pixmap = QPixmap.fromImage(self.image).scaled(
             target_width,
@@ -288,6 +292,34 @@ class ImageLabeler(QMainWindow):
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation
         )
+        
+        if not scaled_pixmap:
+            return
+            
+        # Set the label size to match the scaled image exactly
+        self.canvas.setFixedSize(scaled_pixmap.size())
+        
+        # Draw boxes
+        painter = QPainter(scaled_pixmap)
+        scale = scaled_pixmap.width() / self.image.width()  # Calculate scale directly
+        
+        for i, box in enumerate(self.boxes):
+            x1, y1, x2, y2 = box[:4]
+            # Normalize coordinates
+            x1, x2 = min(x1, x2), max(x1, x2)
+            y1, y2 = min(y1, y2), max(y1, y2)
+            
+            # Scale to display coordinates
+            dx1 = x1 * scale
+            dy1 = y1 * scale
+            dx2 = x2 * scale
+            dy2 = y2 * scale
+            
+            painter.setPen(QPen(Qt.green if i != self.selected_box else Qt.red, 2))
+            painter.drawRect(QRectF(dx1, dy1, dx2 - dx1, dy2 - dy1))
+            
+        painter.end()
+        self.canvas.setPixmap(scaled_pixmap)
         
         if not scaled_pixmap:
             return
